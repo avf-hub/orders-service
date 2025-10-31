@@ -8,6 +8,7 @@ import reactor.test.StepVerifier;
 import ru.javaops.cloudjava.ordersservice.BaseIntegrationTest;
 import ru.javaops.cloudjava.ordersservice.dto.OrderResponse;
 import ru.javaops.cloudjava.ordersservice.dto.SortBy;
+import ru.javaops.cloudjava.ordersservice.exception.OrderServiceException;
 import ru.javaops.cloudjava.ordersservice.storage.model.MenuLineItem;
 import ru.javaops.cloudjava.ordersservice.storage.model.OrderStatus;
 import ru.javaops.cloudjava.ordersservice.testdata.TestConstants;
@@ -21,6 +22,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static org.assertj.core.api.AssertionsForInterfaceTypes.assertThat;
 import static ru.javaops.cloudjava.ordersservice.testdata.TestConstants.*;
 import static ru.javaops.cloudjava.ordersservice.testdata.TestDataProvider.createOrderRequest;
+import static ru.javaops.cloudjava.ordersservice.testdata.TestDataProvider.createOrderInvalidRequest;
 import static ru.javaops.cloudjava.ordersservice.testdata.TestDataProvider.existingItems;
 
 class MenuOrderServiceImplTest extends BaseIntegrationTest {
@@ -67,6 +69,50 @@ class MenuOrderServiceImplTest extends BaseIntegrationTest {
                 .verifyComplete();
 
         wiremock.verify(1, postRequestedFor(urlEqualTo(MENU_INFO_PATH)));
+    }
+
+    @Test
+    void createOrder_returnsError_whenSomeMenusAreNotAvailable() {
+        prepareStubForPartialSuccess();
+
+        var createOrderRequest = createOrderInvalidRequest();
+        Mono<OrderResponse> order = menuOrderService.createOrder(createOrderRequest, USERNAME_ONE);
+        StepVerifier.create(order)
+                .expectError(OrderServiceException.class)
+                .verify();
+        wiremock.verify(1, postRequestedFor(urlEqualTo(MENU_INFO_PATH)));
+    }
+
+    @Test
+    void createOrder_returnsError_whenServiceNotAvailable() {
+        prepareStubForServiceUnavailable();
+
+        var createOrderRequest = createOrderRequest();
+        Mono<OrderResponse> order = menuOrderService.createOrder(createOrderRequest, USERNAME_ONE);
+        StepVerifier.create(order)
+                .expectError(OrderServiceException.class)
+                .verify();
+        wiremock.verify(6, postRequestedFor(urlEqualTo(MENU_INFO_PATH)));
+    }
+
+    @Test
+    void createOrder_returnsError_whenTimeout() {
+        prepareStubForSuccessWithTimeout();
+
+        var createOrderRequest = createOrderRequest();
+        Mono<OrderResponse> order = menuOrderService.createOrder(createOrderRequest, USERNAME_ONE);
+        StepVerifier.create(order)
+                .expectError(OrderServiceException.class)
+                .verify();
+        wiremock.verify(6, postRequestedFor(urlEqualTo(MENU_INFO_PATH)));
+    }
+
+    @Test
+    void getOrdersOfUser_returnsEmptyOrders() {
+        Flux<OrderResponse> orders = menuOrderService.getOrdersOfUser("Unknown", SortBy.DATE_DESC, 0, 100);
+        StepVerifier.create(orders)
+                .expectNextCount(0)
+                .verifyComplete();
     }
 
     private boolean assertOrder(OrderResponse order, LocalDateTime createdAt) {
